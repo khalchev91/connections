@@ -1,14 +1,50 @@
-import 'package:app/constants.dart';
 import 'package:app/models/group.dart';
 import 'package:app/services/validate_service.dart';
 import 'package:flutter/material.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 
-class BoardWidget extends StatelessWidget {
+import '../states/board_state.dart';
+
+class BoardWidget extends StatefulWidget {
   const BoardWidget(Key? key, this._rowLength) : super(key: key);
 
   final int _rowLength;
+
+  @override
+  State<BoardWidget> createState() => _BoardWidgetState();
+}
+
+class _BoardWidgetState extends State<BoardWidget> {
+  late int chancesCount;
+
+  @override
+  void initState() {
+    super.initState();
+    chancesCount = 4;
+  }
+
+  Widget _buildChances(BuildContext context, int chances) {
+    var size = MediaQuery.of(context).size;
+    final gridWidth = size.width;
+    if (!gameCompleted(context)) {
+      return SizedBox(
+        width: gridWidth,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(chances, (index) {
+            return Icon(
+              Icons.circle,
+              color: Colors.grey[300],
+            );
+          }),
+        ),
+      );
+    } else {
+      return Container();
+    }
+  }
 
   Widget _buildGrid(
       List<String> words, BuildContext context, List<Group> group) {
@@ -61,7 +97,7 @@ class BoardWidget extends StatelessWidget {
           ),
           GridView.builder(
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: _rowLength,
+              crossAxisCount: widget._rowLength,
               childAspectRatio: 1,
             ),
             shrinkWrap: true,
@@ -97,49 +133,6 @@ class BoardWidget extends StatelessWidget {
         ]));
   }
 
-  Widget _buildRow(BuildContext context, List<Group> group) {
-    var size = MediaQuery.of(context).size;
-
-    final gridWidth = size.width;
-    final gridHeight = size.height * 0.1;
-
-    return Container(
-        width: gridWidth,
-        height: gridHeight,
-        padding: const EdgeInsets.all(1.5),
-        child: ListView.builder(
-          itemCount: group.length,
-          itemBuilder: (context, index) {
-            return Card(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10.0),
-              ),
-              color: group[index].color,
-              child: Center(
-                child: Column(children: [
-                  Text(
-                    group[index].name,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    group[index].items.join(', '),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ]),
-              ),
-            );
-          },
-        ));
-  }
-
   @override
   Widget build(BuildContext context) {
     var boardState = context.watch<BoardState>();
@@ -148,7 +141,6 @@ class BoardWidget extends StatelessWidget {
     var groups = boardState.groups;
 
     Widget gridWidget = _buildGrid(words, context, groups);
-    // Widget rowWidget = _buildRow(context, groups);
 
     final today = DateTime.now();
     return Column(
@@ -165,20 +157,23 @@ class BoardWidget extends StatelessWidget {
         ),
         Column(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           gridWidget,
+          _buildChances(context, chancesCount),
           const SizedBox(
-            height: 50,
+            height: 30,
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               ElevatedButton(
-                onPressed: () {
-                  boardState.shuffle();
-                },
+                onPressed: !gameCompleted(context)
+                    ? () {
+                        boardState.shuffle();
+                      }
+                    : null,
                 child: const Text('Shuffle'),
               ),
               ElevatedButton(
-                onPressed: anySelected(context)
+                onPressed: anySelected(context) && !gameCompleted(context)
                     ? () {
                         var boardState = context.read<BoardState>();
                         boardState.resetBoard();
@@ -187,7 +182,7 @@ class BoardWidget extends StatelessWidget {
                 child: const Text('Deselect All'),
               ),
               ElevatedButton(
-                onPressed: enableSubmit(context)
+                onPressed: enableSubmit(context) && !gameCompleted(context)
                     ? () {
                         var validateMessage =
                             Validate.checkWords(boardState.selectedWords);
@@ -195,24 +190,23 @@ class BoardWidget extends StatelessWidget {
                         if (validateMessage.validationMessage == 'Woohoo!') {
                           boardState.addToGroup(validateMessage.group);
                           boardState.resetUnselectedWords();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(validateMessage.validationMessage),
-                            ),
-                          );
                         } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(validateMessage.validationMessage),
-                            ),
+                          Fluttertoast.showToast(
+                            msg: validateMessage.validationMessage,
+                            toastLength: Toast.LENGTH_SHORT,
+                            fontSize: 16.0,
                           );
+                          if (chancesCount > 1) {
+                            setState(() {
+                              chancesCount--;
+                            });
+                          } else {
+                            setState(() {
+                              chancesCount = 0;
+                            });
+                            boardState.displayAnswers();
+                          }
                         }
-
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(validateMessage.validationMessage),
-                          ),
-                        );
                       }
                     : null,
                 child: const Text('Submit'),
@@ -223,69 +217,29 @@ class BoardWidget extends StatelessWidget {
       ],
     );
   }
-}
 
-bool isSelected(String word, BuildContext context) {
-  var boardState = context.read<BoardState>();
-  return boardState.selectedWords.contains(word);
-}
-
-void tapKey(String key, BuildContext context) {
-  var boardState = context.read<BoardState>();
-  boardState.selectWord(key);
-}
-
-bool anySelected(BuildContext context) {
-  var boardState = context.read<BoardState>();
-  return boardState.selectedWords.isNotEmpty;
-}
-
-bool enableSubmit(BuildContext context) {
-  var boardState = context.read<BoardState>();
-  return boardState.selectedWords.length == 4;
-}
-
-class BoardState extends ChangeNotifier {
-  List<String> words =
-      day.map((group) => group.items).expand((element) => element).toList();
-
-  List<String> selectedWords = [];
-
-  List<Group> groups = List.empty(growable: true);
-
-  void shuffle() {
-    words.shuffle();
-    notifyListeners();
+  bool isSelected(String word, BuildContext context) {
+    var boardState = context.read<BoardState>();
+    return boardState.selectedWords.contains(word);
   }
 
-  void selectWord(String key) {
-    var word = key;
-
-    if (selectedWords.contains(word)) {
-      selectedWords.remove(word);
-    } else {
-      if (selectedWords.length != 4) {
-        selectedWords.add(word);
-      }
-    }
-    notifyListeners();
+  void tapKey(String key, BuildContext context) {
+    var boardState = context.read<BoardState>();
+    boardState.selectWord(key);
   }
 
-  void addToGroup(Group group) {
-    groups.add(group);
-    notifyListeners();
+  bool anySelected(BuildContext context) {
+    var boardState = context.read<BoardState>();
+    return boardState.selectedWords.isNotEmpty;
   }
 
-  void resetUnselectedWords() {
-    for (var i = 0; i < selectedWords.length; i++) {
-      words.remove(selectedWords[i]);
-    }
-    selectedWords.clear();
-    notifyListeners();
+  bool enableSubmit(BuildContext context) {
+    var boardState = context.read<BoardState>();
+    return boardState.selectedWords.length == 4;
   }
 
-  void resetBoard() {
-    selectedWords.clear();
-    notifyListeners();
+  bool gameCompleted(BuildContext context) {
+    var boardState = context.read<BoardState>();
+    return boardState.groups.length == 4 || chancesCount == 0;
   }
 }
